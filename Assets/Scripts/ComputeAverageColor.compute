@@ -1,0 +1,54 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> OutputTexture;
+
+
+groupshared float3 partialSums[256];
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID, uint3 groupID : SV_GroupID)
+{
+    uint2 textureSize = uint2(300,200);
+    float3 sum = float3(0.0f, 0.0f, 0.0f);
+
+    // Iterate over each pixel in the texture
+    for (uint y = groupID.y; y < textureSize.y; y += 8)
+    {
+        for (uint x = groupID.x; x < textureSize.x; x += 8)
+        {
+            float4 pixel = InputTexture.Load(uint3(x, y, 0));
+
+            sum += pixel.rgb;
+        }
+    }
+
+    partialSums[groupID.x + groupID.y * 8] = sum;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (groupID.x == 0 && groupID.y == 0)
+    {
+        for (uint i = 1; i < 64; i *= 2)
+        {
+            uint index = groupID.x + groupID.y * 8;
+
+            if (index % (2 * i) == 0)
+            {
+                partialSums[index] += partialSums[index + i];
+            }
+
+            // Ensure all threads in the group have finished updating the partial sums
+            GroupMemoryBarrierWithGroupSync();
+        }
+   
+        float3 averageColor = partialSums[0] / (textureSize.x * textureSize.y);
+
+        // Write the result to the output buffer (assuming RWTexture2D<float3>)
+        //OutputTexture[id.xy] = float4(averageColor, 1.0f);
+    }
+
+    OutputTexture[id.xy] = float4(0.0f, 0.0f, 1.0f, 1.0f);
+}
